@@ -7,7 +7,7 @@ function stripModuleType() {
     name: 'strip-module-type',
     enforce: 'post',
     transformIndexHtml(html: string) {
-      return html.replace(/<script type="module"/g, '<script')
+      return html.replace(/<script type="module"/g, '<script defer')
     },
   }
 }
