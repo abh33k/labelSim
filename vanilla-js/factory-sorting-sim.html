@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Factory Labeling Line Simulator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body, #root {
+    width: 100%; height: 100%; overflow: hidden;
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    background: #111827; color: #fff;
+  }
+  #root { display: flex; }
+
+  aside {
+    width: 15%; min-width: 180px; overflow-y: auto; padding: 12px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  #left-panel { border-right: 1px solid #374151; }
+  #right-panel { border-left: 1px solid #374151; }
+
+  main {
+    width: 70%; display: flex; align-items: center; justify-content: center;
+    position: relative; overflow: hidden;
+  }
+  #canvas-wrap { max-width: 100%; max-height: 100%; aspect-ratio: 800 / 600; }
+  #simCanvas { width: 100%; height: 100%; display: block; }
+
+  #robot-status {
+    position: absolute; left: 31.25%; top: 66%; transform: translateX(-50%);
+    background: #111827cc; backdrop-filter: blur(4px);
+    border-radius: 8px; padding: 8px 12px; border: 1px solid #374151;
+    font-family: monospace; font-size: 11px;
+  }
+  #robot-status div { margin-bottom: 2px; }
+  #robot-status .label { color: #9ca3af; }
+  #robot-status .val-amber { color: #fbbf24; font-weight: bold; text-transform: uppercase; }
+  #robot-status .val-green { color: #4ade80; }
+  #robot-status .val-gray { color: #6b7280; }
+  #robot-status .val-cyan { color: #22d3ee; }
+
+  .card {
+    background: #1f2937; border-radius: 12px; padding: 12px;
+    border: 1px solid #374151;
+  }
+  .card h2 {
+    font-size: 11px; font-weight: 700; color: #9ca3af;
+    text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;
+  }
+  .field { margin-bottom: 10px; }
+  .field-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .field-row span { font-size: 12px; }
+  .field-row .lbl { color: #9ca3af; }
+  .field-row .val { font-family: monospace; font-weight: 600; }
+  .val-blue { color: #60a5fa; }
+  .val-green { color: #4ade80; }
+  .val-yellow { color: #facc15; }
+  .val-red { color: #f87171; }
+
+  input[type="range"] {
+    width: 100%; height: 6px; background: #374151; border-radius: 4px;
+    appearance: none; outline: none; cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none; width: 14px; height: 14px; border-radius: 50%; cursor: pointer;
+  }
+  .accent-blue::-webkit-slider-thumb { background: #3b82f6; }
+  .accent-green::-webkit-slider-thumb { background: #22c55e; }
+  .accent-yellow::-webkit-slider-thumb { background: #eab308; }
+  .accent-red::-webkit-slider-thumb { background: #ef4444; }
+
+  .toggle-row { display: flex; gap: 4px; }
+  .toggle-btn {
+    flex: 1; padding: 6px 0; border: none; border-radius: 6px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .toggle-btn.active { background: #2563eb; color: #fff; }
+  .toggle-btn.inactive { background: #374151; color: #9ca3af; }
+  .toggle-btn.inactive:hover { background: #4b5563; }
+
+  .ctrl-btn {
+    border: none; border-radius: 8px; font-size: 13px; font-weight: 700;
+    cursor: pointer; transition: all 0.15s; padding: 8px 0;
+  }
+  .ctrl-btn:hover { opacity: 0.85; }
+  .btn-green { background: #16a34a; color: #fff; }
+  .btn-red { background: #dc2626; color: #fff; }
+  .btn-gray { background: #4b5563; color: #fff; }
+
+  .speed-row { display: flex; gap: 4px; }
+  .speed-btn {
+    flex: 1; padding: 5px 0; border: none; border-radius: 6px;
+    font-size: 11px; font-family: monospace; cursor: pointer; transition: all 0.15s;
+  }
+  .speed-btn.active { background: #2563eb; color: #fff; }
+  .speed-btn.inactive { background: #374151; color: #9ca3af; }
+  .speed-btn.inactive:hover { background: #4b5563; }
+
+  .stat-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+  .stat-row .lbl { color: #9ca3af; }
+  .stat-row .val { font-family: monospace; font-weight: 600; }
+  .divider { height: 1px; background: #374151; margin: 6px 0; }
+
+  .btn-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .btn-row .ctrl-btn { flex: 1; }
+</style>
+</head>
+<body>
+<div id="root">
+
+  <!-- LEFT PANEL -->
+  <aside id="left-panel">
+    <div class="card">
+      <h2>Parameters</h2>
+
+      <div class="field">
+        <span class="lbl" style="font-size:12px;color:#9ca3af;display:block;margin-bottom:4px;">Label Type</span>
+        <div class="toggle-row">
+          <button class="toggle-btn active" data-type="large" onclick="setLabelType('large')">Large</button>
+          <button class="toggle-btn inactive" data-type="small" onclick="setLabelType('small')">Small</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-row"><span class="lbl">Spawn Interval</span><span class="val val-blue" id="spawnVal">2.5s</span></div>
+        <input type="range" min="1.0" max="6" step="0.1" value="2.5" class="accent-blue" id="spawnSlider" oninput="onSpawnSlider(this)">
+      </div>
+
+      <div class="field">
+        <div class="field-row"><span class="lbl">Belt Speed</span><span class="val val-green" id="beltVal">100 u/s</span></div>
+        <input type="range" min="40" max="200" step="5" value="100" class="accent-green" id="beltSlider" oninput="onBeltSlider(this)">
+      </div>
+
+      <div class="field">
+        <div class="field-row"><span class="lbl">Robot Speed</span><span class="val val-yellow" id="robotVal">100%</span></div>
+        <input type="range" min="10" max="100" step="5" value="100" class="accent-yellow" id="robotSlider" oninput="onRobotSlider(this)">
+      </div>
+
+      <div class="field">
+        <div class="field-row"><span class="lbl">Fail Rate</span><span class="val val-red" id="failVal">15%</span></div>
+        <input type="range" min="0" max="50" step="1" value="15" class="accent-red" id="failSlider" oninput="onFailSlider(this)">
+      </div>
+    </div>
+  </aside>
+
+  <!-- CENTER PANEL -->
+  <main>
+    <div id="canvas-wrap">
+      <canvas id="simCanvas" width="800" height="600"></canvas>
+    </div>
+    <div id="robot-status">
+      <div><span class="label">STATE: </span><span class="val-amber" id="rs-state">IDLE</span></div>
+      <div><span class="label">LABEL: </span><span id="rs-label" class="val-gray">NO</span></div>
+      <div><span class="label">GRIPPER: </span><span class="val-cyan" id="rs-gripper">(250, 365)</span></div>
+    </div>
+  </main>
+
+  <!-- RIGHT PANEL -->
+  <aside id="right-panel">
+    <div class="card">
+      <h2>Simulation Control</h2>
+      <div class="btn-row">
+        <button class="ctrl-btn btn-green" id="startPauseBtn" onclick="toggleRunning()">START</button>
+        <button class="ctrl-btn btn-gray" onclick="resetSim()">RESET</button>
+      </div>
+      <span class="lbl" style="font-size:12px;color:#9ca3af;display:block;margin-bottom:4px;">Speed</span>
+      <div class="speed-row">
+        <button class="speed-btn inactive" data-speed="0.5" onclick="setSpeed(0.5)">0.5x</button>
+        <button class="speed-btn active" data-speed="1" onclick="setSpeed(1)">1x</button>
+        <button class="speed-btn inactive" data-speed="2" onclick="setSpeed(2)">2x</button>
+        <button class="speed-btn inactive" data-speed="5" onclick="setSpeed(5)">5x</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Live Statistics</h2>
+      <div class="stat-row"><span class="lbl">Status</span><span class="val" id="st-status" style="color:#facc15;">STOPPED</span></div>
+      <div class="divider"></div>
+      <div class="stat-row"><span class="lbl">Uptime</span><span class="val val-blue" id="st-uptime">00:00</span></div>
+      <div class="stat-row"><span class="lbl">On Belt</span><span class="val" style="color:#22d3ee;" id="st-onbelt">0</span></div>
+      <div class="divider"></div>
+      <div class="stat-row"><span class="lbl">Processed</span><span class="val" id="st-processed">0</span></div>
+      <div class="stat-row"><span class="lbl">Passed</span><span class="val" style="color:#4ade80;" id="st-passed">0</span></div>
+      <div class="stat-row"><span class="lbl">Rejected</span><span class="val" style="color:#f87171;" id="st-rejected">0</span></div>
+      <div class="divider"></div>
+      <div class="stat-row"><span class="lbl">Throughput</span><span class="val" style="color:#c084fc;" id="st-throughput">0.0 /min</span></div>
+      <div class="stat-row"><span class="lbl">Reject Rate</span><span class="val" style="color:#4ade80;" id="st-rejectrate">0.0%</span></div>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+const canvas = document.getElementById('simCanvas');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 600;
+
+const BELT_Y = 300, BELT_H = 50;
+const BELT_TOP = BELT_Y - BELT_H / 2, BELT_BOT = BELT_Y + BELT_H / 2;
+const BELT_LEFT = 80, BELT_RIGHT = 720;
+const ROBOT_X = 250, ROBOT_Y = 365;
+const PRINTER_LARGE_X = 285, PRINTER_SMALL_X = 225, PRINTER_Y = 225, LABEL_OFFSET_Y = 27;
+const SCANNER_X = 500, CHUTE_X = 620;
+const CHUTE_PASS_Y = 420, CHUTE_REJECT_Y = 180;
+const SORT_X = 620, SPAWN_X = 60;
+const ARM_LENGTH_1 = 80, ARM_LENGTH_2 = 70;
+const BOX_SIZE_PX = 32, MIN_GAP = 100;
+const PRINT_TIME_LARGE = 1.5, PRINT_TIME_SMALL = 0.9;
+const TRACK_ZONE_START = ROBOT_X - 80, TRACK_ZONE_END = ROBOT_X + 40;
+
+const BOX_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22'];
+
+const CONFIG = {
+  spawnInterval: 2.5,
+  beltSpeed: 100,
+  failRate: 0.15,
+  labelType: 'large',
+  robotSpeed: 1.0,
+};
+
+let speed = 1;
+let isRunning = false;
+let nextBoxId = 1;
+
+let boxes = [];
+let scara = {
+  angle: 0.3, reach: 0.6, zDown: false, holdingLabel: false,
+  activePrinter: 'large', targetBoxId: null, trackX: ROBOT_X,
+  phaseTimer: 0, phase: 'idle',
+};
+let printers = [
+  { id: 'large', printing: true, ready: false, timer: 0 },
+  { id: 'small', printing: false, ready: false, timer: 0 },
+];
+let stats = { totalProcessed: 0, totalPassed: 0, totalRejected: 0, startTime: Date.now() };
+let spawnTimer = 0;
+
+function lerp(a, b, t) { return a + (b - a) * Math.min(1, t); }
+
+function createBox(labelType) {
+  return {
+    id: nextBoxId++, x: 60, y: BELT_Y, size: labelType,
+    phase: 'spawning', scanResult: 'pending', hasLabel: false,
+    labelType: labelType, speed: 0, phaseTimer: 0,
+    color: BOX_COLORS[Math.floor(Math.random() * BOX_COLORS.length)],
+    spawnTime: performance.now(),
+  };
+}
+
+function tick(rawDelta) {
+  if (!isRunning) return;
+  const delta = rawDelta * speed;
+
+  let spawnTimerNew = spawnTimer + delta;
+  let printersNew = printers.map(p => ({...p}));
+  let statsNew = {...stats};
+
+  printersNew = printersNew.map(p => {
+    if (p.printing) {
+      const pt = p.id === 'large' ? PRINT_TIME_LARGE : PRINT_TIME_SMALL;
+      const t = p.timer + delta;
+      if (t >= pt) return { ...p, printing: false, ready: true, timer: 0 };
+      return { ...p, timer: t };
+    }
+    return p;
+  });
+
+  const canSpawn = !boxes.some(b => b.x < SPAWN_X + MIN_GAP + BOX_SIZE_PX);
+  if (spawnTimerNew >= CONFIG.spawnInterval && canSpawn) {
+    spawnTimerNew = 0;
+    boxes.push(createBox(CONFIG.labelType));
+  }
+
+  boxes.sort((a, b) => a.x - b.x);
+  const activePrinter = printersNew.find(p => p.id === scara.activePrinter);
+
+  boxes = boxes.map(box => {
+    const b = {...box};
+    switch (b.phase) {
+      case 'spawning':
+        b.phase = 'conveying';
+        b.speed = CONFIG.beltSpeed;
+        break;
+      case 'conveying': {
+        const boxAhead = boxes.find(o => o.id !== b.id && o.x > b.x && o.phase !== 'done' && o.phase !== 'sorting' && o.phase !== 'conveying_to_scanner');
+        if (boxAhead) {
+          const gap = boxAhead.x - b.x;
+          if (gap < MIN_GAP + BOX_SIZE_PX) b.speed = Math.max(boxAhead.speed - 20, CONFIG.beltSpeed * 0.3);
+          else b.speed = CONFIG.beltSpeed;
+        } else b.speed = CONFIG.beltSpeed;
+        b.x += b.speed * delta;
+        if (b.x >= SCANNER_X) {
+          b.scanResult = 'reject';
+          b.phase = 'sorting';
+          b.speed = CONFIG.beltSpeed * 0.7;
+          statsNew.totalProcessed++;
+          statsNew.totalRejected++;
+        }
+        break;
+      }
+      case 'being_tracked':
+        b.x += b.speed * delta;
+        b.speed = CONFIG.beltSpeed;
+        if (b.hasLabel) {
+          b.phase = 'conveying_to_scanner';
+          b.speed = CONFIG.beltSpeed;
+        }
+        break;
+      case 'conveying_to_scanner':
+        b.x += b.speed * delta;
+        if (b.x >= SCANNER_X) {
+          if (!b.hasLabel) b.scanResult = 'reject';
+          else b.scanResult = Math.random() > CONFIG.failRate ? 'pass' : 'reject';
+          b.phase = 'sorting';
+          b.speed = CONFIG.beltSpeed * 0.7;
+          b.phaseTimer = 0;
+          statsNew.totalProcessed++;
+          if (b.scanResult === 'pass') statsNew.totalPassed++;
+          else statsNew.totalRejected++;
+        }
+        break;
+      case 'sorting':
+        b.x += b.speed * delta;
+        b.speed = CONFIG.beltSpeed * 0.7;
+        if (b.scanResult === 'pass') b.y = lerp(b.y, 420, delta * 3);
+        else b.y = lerp(b.y, 180, delta * 3);
+        if (b.x >= SORT_X) b.phase = 'done';
+        break;
+    }
+    return b;
+  });
+
+  boxes = boxes.filter(b => b.phase !== 'done');
+
+  const targetBox = boxes.find(b => b.id === scara.targetBoxId);
+
+  switch (scara.phase) {
+    case 'idle': {
+      scara.reach = 0.6 + Math.sin(Date.now() * 0.002) * 0.02;
+      if (activePrinter && activePrinter.ready) scara.phase = 'reaching';
+      break;
+    }
+    case 'reaching': {
+      const px = scara.activePrinter === 'large' ? PRINTER_LARGE_X : PRINTER_SMALL_X;
+      const py = PRINTER_Y + LABEL_OFFSET_Y;
+      const lDist = Math.sqrt((px - ROBOT_X) ** 2 + (py - ROBOT_Y) ** 2);
+      const labelReach = Math.min(lDist / (ARM_LENGTH_1 + ARM_LENGTH_2), 1);
+      scara.reach = lerp(scara.reach, labelReach, delta * 8 * CONFIG.robotSpeed);
+      scara.zDown = false;
+      scara.phaseTimer = 0;
+      if (scara.reach > labelReach - 0.02) { scara.reach = labelReach; scara.phase = 'picking'; }
+      break;
+    }
+    case 'picking': {
+      scara.phaseTimer += delta * CONFIG.robotSpeed;
+      if (scara.phaseTimer < 0.15) scara.zDown = true;
+      else if (scara.phaseTimer < 0.25) {
+        scara.zDown = true;
+        if (!scara.holdingLabel) {
+          scara.holdingLabel = true;
+          printersNew = printersNew.map(p => p.id === scara.activePrinter ? { ...p, ready: false, printing: true, timer: 0 } : p);
+        }
+      }
+      else if (scara.phaseTimer < 0.4) scara.zDown = false;
+      else { scara.zDown = false; scara.phaseTimer = 0; scara.phase = 'waiting'; }
+      break;
+    }
+    case 'waiting': {
+      const waitX = scara.activePrinter === 'large' ? PRINTER_LARGE_X : PRINTER_SMALL_X;
+      const waitDx = waitX - ROBOT_X, waitDy = BELT_Y - ROBOT_Y;
+      const waitDist = Math.sqrt(waitDx * waitDx + waitDy * waitDy);
+      const waitReach = Math.min(waitDist / (ARM_LENGTH_1 + ARM_LENGTH_2), 1);
+      scara.reach = lerp(scara.reach, waitReach, delta * 3 * CONFIG.robotSpeed);
+      scara.trackX = waitX;
+      scara.zDown = false;
+      if (Math.abs(scara.reach - waitReach) < 0.03) {
+        const eligible = boxes.find(b => b.x >= TRACK_ZONE_START && b.phase === 'conveying' && !b.hasLabel);
+        if (eligible) {
+          scara.targetBoxId = eligible.id;
+          const bi = boxes.findIndex(bx => bx.id === eligible.id);
+          if (bi >= 0) boxes[bi] = { ...boxes[bi], phase: 'being_tracked' };
+          scara.phase = 'tracking';
+        }
+      }
+      break;
+    }
+    case 'tracking': {
+      if (targetBox && targetBox.phase === 'being_tracked') {
+        if (targetBox.x > SORT_X - 50) {
+          scara.targetBoxId = null;
+          scara.trackX = ROBOT_X;
+          scara.phaseTimer = 0;
+          scara.phase = 'waiting';
+          break;
+        }
+        scara.trackX = lerp(scara.trackX, targetBox.x, delta * 3 * CONFIG.robotSpeed);
+        const dx = targetBox.x - ROBOT_X, dy = BELT_Y - ROBOT_Y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const normalizedDist = Math.min(dist / (ARM_LENGTH_1 + ARM_LENGTH_2), 1);
+        scara.reach = lerp(scara.reach, normalizedDist, delta * 1.2 * CONFIG.robotSpeed);
+        scara.zDown = false;
+        if (Math.abs(scara.trackX - targetBox.x) < 8) { scara.phaseTimer = 0; scara.phase = 'applying'; }
+      } else {
+        scara.targetBoxId = null;
+        const eligible = boxes.find(b => b.x >= TRACK_ZONE_START && b.phase === 'conveying' && !b.hasLabel);
+        if (eligible) {
+          scara.targetBoxId = eligible.id;
+          scara.trackX = scara.activePrinter === 'large' ? PRINTER_LARGE_X : PRINTER_SMALL_X;
+          const bi = boxes.findIndex(bx => bx.id === eligible.id);
+          if (bi >= 0) boxes[bi] = { ...boxes[bi], phase: 'being_tracked' };
+        }
+      }
+      break;
+    }
+    case 'applying': {
+      if (targetBox && targetBox.phase === 'being_tracked') {
+        if (targetBox.x > SORT_X - 50) {
+          scara.targetBoxId = null;
+          scara.trackX = ROBOT_X;
+          scara.phaseTimer = 0;
+          scara.phase = 'waiting';
+          break;
+        }
+        scara.trackX = targetBox.x;
+        const dx = targetBox.x - ROBOT_X, dy = BELT_Y - ROBOT_Y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const normalizedDist = Math.min(dist / (ARM_LENGTH_1 + ARM_LENGTH_2), 1);
+        scara.reach = lerp(scara.reach, normalizedDist, delta * 4 * CONFIG.robotSpeed);
+        scara.zDown = true;
+        scara.phaseTimer += delta * CONFIG.robotSpeed;
+        if (scara.phaseTimer >= 0.6) {
+          scara.holdingLabel = false;
+          const bi = boxes.findIndex(bx => bx.id === targetBox.id);
+          if (bi >= 0) boxes[bi] = { ...boxes[bi], hasLabel: true };
+          scara.targetBoxId = null;
+          scara.phaseTimer = 0;
+          scara.phase = 'reaching';
+        }
+      } else {
+        scara.targetBoxId = null;
+        scara.phase = 'reaching';
+      }
+      break;
+    }
+  }
+
+  printers = printersNew;
+  stats = statsNew;
+  spawnTimer = spawnTimerNew;
+}
+
+function computeEndEffector() {
+  const baseX = ROBOT_X, baseY = ROBOT_Y;
+  const useBox = scara.phase === 'tracking' || scara.phase === 'applying';
+  const usePrint = scara.phase === 'reaching' || scara.phase === 'picking';
+  const useWait = scara.phase === 'waiting';
+  const isDir = (useBox || usePrint || useWait) && scara.reach > 0.01;
+
+  if (isDir) {
+    let tx, ty;
+    if (useBox) { tx = scara.trackX; ty = BELT_Y; }
+    else if (useWait) { tx = scara.activePrinter === 'large' ? PRINTER_LARGE_X : PRINTER_SMALL_X; ty = BELT_Y; }
+    else { tx = scara.activePrinter === 'large' ? PRINTER_LARGE_X : PRINTER_SMALL_X; ty = PRINTER_Y + LABEL_OFFSET_Y; }
+    const dx = tx - baseX, dy = ty - baseY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > 0) {
+      const nx = dx / dist, ny = dy / dist;
+      const totalLen = (ARM_LENGTH_1 + ARM_LENGTH_2) * scara.reach;
+      return { x: Math.round(baseX + nx * totalLen), y: Math.round(baseY + ny * totalLen) };
+    }
+  }
+
+  const a = scara.angle, r = scara.reach;
+  const j1x = baseX + Math.sin(a) * ARM_LENGTH_1 * r;
+  const j1y = baseY - Math.cos(a) * ARM_LENGTH_1 * r;
+  return { x: Math.round(j1x + Math.sin(a) * ARM_LENGTH_2 * r), y: Math.round(j1y - Math.cos(a) * ARM_LENGTH_2 * r) };
+}
+
+function drawFactoryFloor() {
+  ctx.fillStyle = '#2d2d3d';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#33334415';
+  for (let x = 0; x < W; x += 4) {
+    for (let y = 0; y < H; y += 4) {
+      if (((x * 7 + y * 13) % 17) < 5) ctx.fillRect(x, y, 2, 2);
+    }
+  }
+  ctx.strokeStyle = '#33335518';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+}
+
+function drawConveyor(time) {
+  ctx.save();
+  ctx.fillStyle = '#3a3a4a';
+  ctx.fillRect(BELT_LEFT, BELT_TOP, BELT_RIGHT - BELT_LEFT, BELT_H);
+  const stripeW = 12;
+  const offset = isRunning ? (time * CONFIG.beltSpeed * speed * 0.05) % stripeW : 0;
+  ctx.fillStyle = '#4a4a5a';
+  for (let x = BELT_LEFT + offset; x < BELT_RIGHT; x += stripeW * 2) ctx.fillRect(x, BELT_TOP + 2, stripeW, BELT_H - 4);
+  ctx.strokeStyle = '#555566';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(BELT_LEFT, BELT_TOP, BELT_RIGHT - BELT_LEFT, BELT_H);
+
+  ctx.fillStyle = '#666677';
+  const rollerAngle = isRunning ? time * CONFIG.beltSpeed * speed * 0.1 : 0;
+  for (const rx of [BELT_LEFT, BELT_RIGHT]) {
+    ctx.save();
+    ctx.translate(rx, BELT_Y);
+    ctx.rotate(rollerAngle);
+    ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#555566'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(5, 0); ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.fillStyle = '#444455';
+  for (const x of [-6, -3, 0, 3, 6].map(v => 300 + v * 50)) {
+    if (x > BELT_LEFT && x < BELT_RIGHT) {
+      ctx.fillRect(x - 3, BELT_TOP - 4, 6, BELT_H + 8);
+      ctx.fillRect(x - 4, BELT_BOT + 4, 3, 12);
+      ctx.fillRect(x + 1, BELT_BOT + 4, 3, 12);
+    }
+  }
+  ctx.restore();
+}
+
+function drawFeeder() {
+  ctx.save();
+  ctx.fillStyle = '#3a3a5c';
+  ctx.strokeStyle = '#4a4a6c';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  roundRect(ctx, BELT_LEFT - 40, BELT_TOP - 15, 45, BELT_H + 30, 5);
+  ctx.fill(); ctx.stroke();
+
+  const arrowX = BELT_LEFT - 15 + (isRunning ? Math.sin(Date.now() * 0.004) * 5 : 0);
+  ctx.fillStyle = '#fbbf24';
+  ctx.beginPath();
+  ctx.moveTo(arrowX + 10, BELT_Y);
+  ctx.lineTo(arrowX - 5, BELT_Y - 8);
+  ctx.lineTo(arrowX - 5, BELT_Y + 8);
+  ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle = '#ef4444';
+  ctx.shadowColor = '#ef4444';
+  ctx.shadowBlur = isRunning ? 6 : 2;
+  ctx.beginPath(); ctx.arc(BELT_LEFT - 22, BELT_TOP - 8, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+function drawPrinter(printer, x, y, label, isActive) {
+  const pw = 60, ph = 35;
+  ctx.save();
+  ctx.fillStyle = isActive ? '#d8d8f0' : '#e8e8f0';
+  ctx.strokeStyle = isActive ? '#6688cc' : '#999999';
+  ctx.lineWidth = isActive ? 2 : 1.5;
+  ctx.beginPath(); roundRect(ctx, x - pw / 2, y - ph / 2, pw, ph, 4); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = '#333344';
+  ctx.font = 'bold 8px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, x, y - 4);
+
+  const sc = printer.ready ? '#22c55e' : printer.printing ? '#fbbf24' : '#666666';
+  const st = printer.ready ? 'READY' : printer.printing ? 'PRINTING' : 'IDLE';
+  ctx.fillStyle = sc;
+  ctx.shadowColor = sc;
+  ctx.shadowBlur = (printer.ready || printer.printing) ? 6 : 0;
+  ctx.beginPath(); ctx.arc(x + pw / 2 - 7, y + ph / 2 - 7, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.font = '6px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(st, x + pw / 2 - 2, y + ph / 2 - 2);
+
+  if (printer.ready) {
+    const sheetColor = label.includes('WS51') ? '#f0f0e0' : '#e8f0f0';
+    ctx.fillStyle = sheetColor;
+    ctx.strokeStyle = '#aaaaaa';
+    ctx.lineWidth = 0.5;
+    ctx.fillRect(x - 7, y + ph / 2 + 4, 14, 10);
+    ctx.strokeRect(x - 7, y + ph / 2 + 4, 14, 10);
+  }
+
+  if (printer.printing) {
+    const progress = printer.timer / (printer.id === 'large' ? PRINT_TIME_LARGE : PRINT_TIME_SMALL);
+    ctx.fillStyle = '#fbbf2444';
+    ctx.fillRect(x - pw / 2, y + ph / 2 + 2, pw * progress, 3);
+    ctx.strokeStyle = '#fbbf2466';
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(x - pw / 2, y + ph / 2 + 2, pw, 3);
+  }
+  ctx.restore();
+}
+
+function drawBox(box) {
+  const s = 32, hs = s / 2;
+  ctx.save();
+  ctx.translate(box.x, box.y);
+
+  const age = (performance.now() - box.spawnTime) / 1000;
+  ctx.globalAlpha = Math.min(1, age / 0.3);
+
+  ctx.shadowColor = '#00000066';
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 2;
+
+  ctx.fillStyle = box.color;
+  ctx.strokeStyle = '#00000044';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); roundRect(ctx, -hs, -hs, s, s, 3); ctx.fill(); ctx.stroke();
+
+  ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+
+  ctx.fillStyle = '#f5f5dc88';
+  ctx.fillRect(-hs + 3, -hs + 3, s - 6, s - 6);
+
+  if (box.hasLabel) {
+    const lw = box.labelType === 'large' ? 22 : 14;
+    const lh = box.labelType === 'large' ? 10 : 7;
+    ctx.fillStyle = '#ffffffdd';
+    ctx.strokeStyle = '#33333366';
+    ctx.lineWidth = 0.8;
+    ctx.fillRect(-lw / 2, -lh / 2 - 2, lw, lh);
+    ctx.strokeRect(-lw / 2, -lh / 2 - 2, lw, lh);
+    ctx.fillStyle = '#999999';
+    ctx.font = '5px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(box.labelType === 'large' ? 'L' : 'S', 0, -2);
+  }
+
+  if (box.phase === 'being_tracked') {
+    const pulse = 0.4 + 0.3 * Math.sin(Date.now() * 0.008);
+    ctx.strokeStyle = `rgba(34, 197, 94, ${pulse})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(-hs - 3, -hs - 3, s + 6, s + 6);
+    ctx.setLineDash([]);
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawScaraArm() {
+  const baseX = ROBOT_X, baseY = ROBOT_Y;
+  ctx.save();
+
+  ctx.fillStyle = '#555566';
+  ctx.strokeStyle = '#444455';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(baseX, baseY, 18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#f59e0b';
+  ctx.beginPath(); ctx.arc(baseX, baseY, 12, 0, Math.PI * 2); ctx.fill();
+
+  const useBox = scara.phase === 'tracking' || scara.phase === 'applying';
+  const usePrint = scara.phase === 'reaching' || scara.phase === 'picking';
+  const useWait = scara.phase === 'waiting';
+  const isDir = (useBox || usePrint || useWait) && scara.reach > 0.01;
+
+  let j1x, j1y, endX, endY;
+
+  if (isDir) {
+    let tx, ty;
+    if (useBox) { tx = scara.trackX; ty = BELT_Y; }
+    else if (useWait) { tx = scara.activePrinter === 'large' ? PRINTER_LARGE_X : PRINTER_SMALL_X; ty = BELT_Y; }
+    else { tx = scara.activePrinter === 'large' ? PRINTER_LARGE_X : PRINTER_SMALL_X; ty = PRINTER_Y + LABEL_OFFSET_Y; }
+
+    const dx = tx - baseX, dy = ty - baseY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > 0) {
+      const nx = dx / dist, ny = dy / dist;
+      const totalLen = (ARM_LENGTH_1 + ARM_LENGTH_2) * scara.reach;
+      const ratio = ARM_LENGTH_1 / (ARM_LENGTH_1 + ARM_LENGTH_2);
+      const elbowBend = useBox && scara.reach > 0.5 ? 8 : 0;
+      j1x = baseX + nx * totalLen * ratio - ny * elbowBend;
+      j1y = baseY + ny * totalLen * ratio + nx * elbowBend;
+      endX = baseX + nx * totalLen;
+      endY = baseY + ny * totalLen;
+    } else {
+      j1x = baseX; j1y = baseY - ARM_LENGTH_1 * scara.reach;
+      endX = baseX; endY = baseY - (ARM_LENGTH_1 + ARM_LENGTH_2) * scara.reach;
+    }
+  } else {
+    const a = scara.angle, r = scara.reach;
+    j1x = baseX + Math.sin(a) * ARM_LENGTH_1 * r;
+    j1y = baseY - Math.cos(a) * ARM_LENGTH_1 * r;
+    endX = j1x + Math.sin(a) * ARM_LENGTH_2 * r;
+    endY = j1y - Math.cos(a) * ARM_LENGTH_2 * r;
+  }
+
+  ctx.shadowColor = '#00000055'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+  ctx.strokeStyle = '#7a8599'; ctx.lineWidth = 8; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(baseX, baseY); ctx.lineTo(j1x, j1y); ctx.stroke();
+  ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+
+  ctx.fillStyle = '#f59e0b';
+  ctx.beginPath(); ctx.arc(j1x, j1y, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#c5841a';
+  ctx.beginPath(); ctx.arc(j1x, j1y, 2.5, 0, Math.PI * 2); ctx.fill();
+
+  ctx.shadowColor = '#00000044'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1;
+  ctx.strokeStyle = '#6a7589'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(j1x, j1y); ctx.lineTo(endX, endY); ctx.stroke();
+  ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+
+  const gSize = scara.holdingLabel ? 4 : 6;
+  ctx.fillStyle = scara.holdingLabel ? '#f5f5dc' : '#444455';
+  ctx.beginPath(); ctx.arc(endX, endY, gSize, 0, Math.PI * 2); ctx.fill();
+
+  if (scara.phase === 'applying' && scara.phaseTimer >= 0.5) {
+    const fa = 1 - ((scara.phaseTimer - 0.5) / 0.1);
+    if (fa > 0) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${fa * 0.6})`;
+      ctx.beginPath(); ctx.arc(endX, endY, 10, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  if (scara.zDown) {
+    ctx.strokeStyle = '#ff660066'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(endX - 4, endY - 4); ctx.lineTo(endX + 4, endY + 4);
+    ctx.moveTo(endX + 4, endY - 4); ctx.lineTo(endX - 4, endY + 4);
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  if (useBox && scara.targetBoxId) {
+    ctx.strokeStyle = '#22c55e33'; ctx.lineWidth = 1; ctx.setLineDash([2, 4]);
+    ctx.beginPath(); ctx.moveTo(endX, endY); ctx.lineTo(scara.trackX, BELT_Y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  ctx.restore();
+}
+
+function drawScanner(time) {
+  ctx.save();
+  ctx.fillStyle = '#444455';
+  ctx.fillRect(SCANNER_X - 8, BELT_TOP - 20, 16, 20);
+  ctx.fillRect(SCANNER_X - 8, BELT_BOT, 16, 20);
+  ctx.fillStyle = '#333344';
+  ctx.fillRect(SCANNER_X - 15, BELT_TOP - 22, 30, 6);
+  ctx.fillRect(SCANNER_X - 15, BELT_BOT + 16, 30, 6);
+
+  const isScanning = boxes.some(b => b.phase === 'sorting' && Math.abs(b.x - SCANNER_X) < 40);
+  const laserColor = isScanning ? '#ff3333' : '#660000';
+  const alpha = isScanning ? 0.7 : 0.2;
+  const sweepOffset = isScanning ? Math.sin(time * 3) * 8 : 0;
+  ctx.strokeStyle = laserColor;
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = isScanning ? 3 : 2;
+  ctx.beginPath();
+  ctx.moveTo(SCANNER_X + sweepOffset, BELT_TOP + 2);
+  ctx.lineTo(SCANNER_X - sweepOffset, BELT_BOT - 2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  const ic = isScanning ? '#ef4444' : '#22c55e';
+  ctx.fillStyle = ic;
+  ctx.shadowColor = ic;
+  ctx.shadowBlur = isScanning ? 8 : 3;
+  ctx.beginPath(); ctx.arc(SCANNER_X, BELT_TOP - 28, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+function drawChute(x, y, color, label, angle) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.fillStyle = '#666677';
+  ctx.strokeStyle = '#555566';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); roundRect(ctx, -40, -12, 80, 24, 3); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#555566';
+  ctx.fillRect(-40, -14, 3, 28); ctx.fillRect(37, -14, 3, 28);
+  ctx.fillStyle = color;
+  ctx.shadowColor = color; ctx.shadowBlur = 6;
+  ctx.beginPath(); ctx.arc(30, 0, 4, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 8px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, 0, 0);
+  ctx.restore();
+}
+
+function drawTitle() {
+  ctx.save();
+  ctx.fillStyle = '#ffffffaa';
+  ctx.font = 'bold 14px monospace';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('FACTORY LABELING LINE - TOP VIEW', 10, 10);
+  ctx.fillStyle = '#ffffff99';
+  ctx.font = '10px monospace';
+  ctx.fillText('INPUT →', 10, BELT_Y - 6);
+  ctx.fillText('→ OUTPUT', BELT_RIGHT + 5, BELT_Y - 6);
+  ctx.fillStyle = '#ffffff77';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('SCARA ARM', ROBOT_X, ROBOT_Y + 30);
+  ctx.fillText('SCANNER', SCANNER_X, BELT_BOT + 42);
+  ctx.fillText('PASS', CHUTE_X, CHUTE_PASS_Y + 28);
+  ctx.fillText('REJECT', CHUTE_X, CHUTE_REJECT_Y - 28);
+  ctx.restore();
+}
+
+function drawFeedLines() {
+  ctx.strokeStyle = '#ffffff08';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 6]);
+  ctx.beginPath(); ctx.moveTo(PRINTER_LARGE_X, PRINTER_Y + 18); ctx.lineTo(ROBOT_X, ROBOT_Y - 18); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(PRINTER_SMALL_X, PRINTER_Y + 18); ctx.lineTo(ROBOT_X, ROBOT_Y - 18); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawDashedConnections() {
+  ctx.strokeStyle = '#22c55e33';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(BELT_RIGHT, BELT_Y); ctx.lineTo(CHUTE_X - 20, CHUTE_PASS_Y); ctx.stroke();
+  ctx.strokeStyle = '#ef444433';
+  ctx.beginPath(); ctx.moveTo(BELT_RIGHT, BELT_Y); ctx.lineTo(CHUTE_X - 20, CHUTE_REJECT_Y); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+}
+
+function draw() {
+  const time = performance.now() / 1000;
+  ctx.clearRect(0, 0, W, H);
+  drawFactoryFloor();
+  drawConveyor(time);
+  drawPrinter(printers[0], PRINTER_LARGE_X, PRINTER_Y, 'WS51 (L)', scara.activePrinter === 'large');
+  drawPrinter(printers[1], PRINTER_SMALL_X, PRINTER_Y, 'WS52 (S)', scara.activePrinter === 'small');
+  drawFeedLines();
+  drawFeeder();
+  for (const box of boxes) drawBox(box);
+  drawScaraArm();
+  drawScanner(time);
+  const passAngle = Math.atan2(CHUTE_PASS_Y - BELT_Y, CHUTE_X - BELT_RIGHT);
+  const rejectAngle = Math.atan2(CHUTE_REJECT_Y - BELT_Y, CHUTE_X - BELT_RIGHT);
+  drawChute(CHUTE_X + 20, CHUTE_PASS_Y, '#22c55e', 'PASS', passAngle);
+  drawChute(CHUTE_X + 20, CHUTE_REJECT_Y, '#ef4444', 'REJECT', rejectAngle);
+  drawDashedConnections();
+  drawTitle();
+}
+
+function updateStats() {
+  document.getElementById('st-status').textContent = isRunning ? 'RUNNING' : 'STOPPED';
+  document.getElementById('st-status').style.color = isRunning ? '#4ade80' : '#facc15';
+
+  const uptimeSec = Math.floor((Date.now() - stats.startTime) / 1000);
+  const mm = String(Math.floor(uptimeSec / 60)).padStart(2, '0');
+  const ss = String(uptimeSec % 60).padStart(2, '0');
+  document.getElementById('st-uptime').textContent = `${mm}:${ss}`;
+
+  document.getElementById('st-onbelt').textContent = boxes.length;
+  document.getElementById('st-processed').textContent = stats.totalProcessed;
+  document.getElementById('st-passed').textContent = stats.totalPassed;
+  document.getElementById('st-rejected').textContent = stats.totalRejected;
+
+  const elapsedMin = (Date.now() - stats.startTime) / 60000;
+  const throughput = elapsedMin > 0 ? (stats.totalProcessed / elapsedMin).toFixed(1) : '0.0';
+  document.getElementById('st-throughput').textContent = throughput + ' /min';
+
+  const rejectRate = stats.totalProcessed > 0 ? ((stats.totalRejected / stats.totalProcessed) * 100).toFixed(1) : '0.0';
+  const rrEl = document.getElementById('st-rejectrate');
+  rrEl.textContent = rejectRate + '%';
+  rrEl.style.color = parseFloat(rejectRate) > 10 ? '#f87171' : '#4ade80';
+
+  const ee = computeEndEffector();
+  document.getElementById('rs-state').textContent = scara.phase;
+  document.getElementById('rs-label').textContent = scara.holdingLabel ? 'YES' : 'NO';
+  document.getElementById('rs-label').className = scara.holdingLabel ? 'val-green' : 'val-gray';
+  document.getElementById('rs-gripper').textContent = `(${ee.x}, ${ee.y})`;
+}
+
+function gameLoop(now) {
+  const delta = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+  tick(delta);
+  draw();
+  updateStats();
+  rafId = requestAnimationFrame(gameLoop);
+}
+
+let lastTime = performance.now();
+let rafId = null;
+
+function start() {
+  if (!isRunning) {
+    isRunning = true;
+    lastTime = performance.now();
+    rafId = requestAnimationFrame(gameLoop);
+    document.getElementById('startPauseBtn').textContent = 'PAUSE';
+    document.getElementById('startPauseBtn').className = 'ctrl-btn btn-red';
+  }
+}
+
+function pause() {
+  isRunning = false;
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  document.getElementById('startPauseBtn').textContent = 'START';
+  document.getElementById('startPauseBtn').className = 'ctrl-btn btn-green';
+}
+
+function toggleRunning() {
+  if (isRunning) pause(); else start();
+}
+
+function resetSim() {
+  pause();
+  boxes = [];
+  nextBoxId = 1;
+  scara = {
+    angle: 0.3, reach: 0.6, zDown: false, holdingLabel: false,
+    activePrinter: CONFIG.labelType, targetBoxId: null, trackX: ROBOT_X,
+    phaseTimer: 0, phase: 'idle',
+  };
+  printers = [
+    { id: 'large', printing: CONFIG.labelType === 'large', ready: false, timer: 0 },
+    { id: 'small', printing: CONFIG.labelType === 'small', ready: false, timer: 0 },
+  ];
+  stats = { totalProcessed: 0, totalPassed: 0, totalRejected: 0, startTime: Date.now() };
+  spawnTimer = 0;
+  draw();
+  updateStats();
+}
+
+function setLabelType(t) {
+  CONFIG.labelType = t;
+  document.querySelectorAll('.toggle-btn').forEach(btn => {
+    btn.className = btn.dataset.type === t ? 'toggle-btn active' : 'toggle-btn inactive';
+  });
+  printers = printers.map(p => {
+    if (p.id === t) return { ...p, printing: true, ready: false, timer: 0 };
+    return { ...p, printing: false, ready: false, timer: 0 };
+  });
+  scara.activePrinter = t;
+}
+
+function setSpeed(s) {
+  speed = s;
+  document.querySelectorAll('.speed-btn').forEach(btn => {
+    btn.className = btn.dataset.speed == s ? 'speed-btn active' : 'speed-btn inactive';
+  });
+}
+
+function onSpawnSlider(el) {
+  CONFIG.spawnInterval = parseFloat(el.value);
+  document.getElementById('spawnVal').textContent = CONFIG.spawnInterval.toFixed(1) + 's';
+}
+function onBeltSlider(el) {
+  CONFIG.beltSpeed = parseFloat(el.value);
+  document.getElementById('beltVal').textContent = CONFIG.beltSpeed.toFixed(0) + ' u/s';
+}
+function onRobotSlider(el) {
+  CONFIG.robotSpeed = parseFloat(el.value) / 100;
+  document.getElementById('robotVal').textContent = (CONFIG.robotSpeed * 100).toFixed(0) + '%';
+}
+function onFailSlider(el) {
+  CONFIG.failRate = parseFloat(el.value) / 100;
+  document.getElementById('failVal').textContent = (CONFIG.failRate * 100).toFixed(0) + '%';
+}
+
+draw();
+updateStats();
+</script>
+</body>
+</html>

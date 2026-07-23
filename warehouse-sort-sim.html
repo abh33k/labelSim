@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Warehouse Sorting Simulator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    color: #eee;
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 8px; color: #e94560; }
+  #controls {
+    display: flex; gap: 12px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; justify-content: center;
+  }
+  button {
+    padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;
+    font-size: 0.9rem; font-weight: 600; transition: opacity 0.2s;
+  }
+  button:hover { opacity: 0.85; }
+  #startBtn { background: #0f3460; color: #fff; }
+  #pauseBtn { background: #e94560; color: #fff; }
+  #resetBtn { background: #533483; color: #fff; }
+
+  .speed-group { display: flex; gap: 4px; align-items: center; }
+  .speed-group label { font-size: 0.85rem; margin-right: 6px; }
+  .speed-btn {
+    padding: 6px 14px; font-size: 0.8rem; background: #16213e; color: #888; border-radius: 4px;
+  }
+  .speed-btn.active { background: #e94560; color: #fff; font-weight: 700; }
+
+  #settingsToggle {
+    background: #0f3460; color: #aaa; font-size: 0.9rem;
+  }
+  #settingsToggle.active { color: #ffd700; }
+
+  #settingsPanel {
+    display: none; gap: 15px; font-size: 0.85rem;
+    background: #16213e; padding: 12px 20px; border-radius: 4px; margin-bottom: 8px;
+  }
+  #settingsPanel.visible { display: flex; }
+  .setting { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .setting label { font-size: 0.8rem; color: #aaa; }
+  .setting input[type="range"] { width: 100px; }
+  .setting .val { font-weight: 700; color: #ffd700; font-size: 0.9rem; }
+  #applySettingsBtn { background: #4caf50; color: #fff; align-self: flex-end; }
+
+  #stats {
+    display: flex; gap: 20px; font-size: 0.85rem;
+    background: #16213e; padding: 8px 16px; border-radius: 4px;
+  }
+  .stat span { font-weight: 700; color: #e94560; }
+  #processTimes {
+    display: flex; gap: 15px; font-size: 0.8rem;
+    background: #16213e; padding: 8px 16px; border-radius: 4px; margin-bottom: 8px;
+  }
+  .proc span { font-weight: 700; color: #ffd700; }
+  #completionMsg {
+    display: none; font-size: 1.2rem; font-weight: bold;
+    color: #4caf50; margin-bottom: 10px;
+  }
+  canvas {
+    border: 2px solid #16213e; border-radius: 4px; background: #0f3460;
+  }
+</style>
+</head>
+<body>
+<h1>Warehouse Sorting Simulator</h1>
+<div id="controls">
+  <button id="startBtn">Start</button>
+  <button id="pauseBtn">Pause</button>
+  <button id="resetBtn">Reset</button>
+
+  <div class="speed-group">
+    <label>Speed:</label>
+    <button class="speed-btn" data-speed="1">Slow</button>
+    <button class="speed-btn active" data-speed="5">Normal</button>
+    <button class="speed-btn" data-speed="20">Fast</button>
+  </div>
+
+  <button id="settingsToggle">&#9881; Settings</button>
+</div>
+
+<div id="settingsPanel">
+  <div class="setting">
+    <label>Operators</label>
+    <input type="range" id="opSlider" min="1" max="10" value="4">
+    <span class="val" id="opVal">4</span>
+  </div>
+  <div class="setting">
+    <label>Containers</label>
+    <input type="range" id="contSlider" min="1" max="20" value="10">
+    <span class="val" id="contVal">10</span>
+  </div>
+  <div class="setting">
+    <label>Items/Container</label>
+    <input type="range" id="itemsSlider" min="100" max="800" step="50" value="500">
+    <span class="val" id="itemsVal">500</span>
+  </div>
+  <button id="applySettingsBtn">Apply</button>
+</div>
+
+<div id="stats">
+  <div class="stat">Pending: <span id="pendingCount">0</span></div>
+  <div class="stat">In-Transit: <span id="transitCount">0</span></div>
+  <div class="stat">Sorted: <span id="sortedCount">0</span></div>
+  <div class="stat">Time: <span id="elapsedTime">00:00:00</span></div>
+  <div class="stat">Rate: <span id="throughputRate">0</span> boxes/min</div>
+</div>
+<div id="processTimes">
+  <div class="proc">Pick: <span>3.0</span>s</div>
+  <div class="proc">Walk: <span>4.0-6.0</span>s</div>
+  <div class="proc">Place: <span>3.0</span>s</div>
+  <div class="proc">Return: <span>4.0-6.0</span>s</div>
+  <div class="proc">Cycles: <span id="cycleCount">0</span></div>
+</div>
+<div id="completionMsg">Simulation Complete!</div>
+<canvas id="simCanvas" width="1600" height="900"></canvas>
+
+<script>
+const canvas = document.getElementById('simCanvas');
+const ctx = canvas.getContext('2d');
+
+const CONFIG = {
+  numContainers: 10,
+  numOperators: 4,
+  itemsPerContainer: 500,
+};
+const CONTAINER_CAPACITY = 800;
+const NUM_CATEGORIES = 50;
+const MIN_CARRY = 3;
+const MAX_CARRY = 6;
+
+const FPS = 60;
+const PICK_FRAMES = 3 * FPS;
+const PLACE_FRAMES = 3 * FPS;
+function walkFrames() { return (4 + Math.random() * 2) * FPS; }
+function returnFrames() { return (4 + Math.random() * 2) * FPS; }
+
+const CATEGORY_COLORS = [];
+for (let i = 0; i < NUM_CATEGORIES; i++) {
+  const hue = (i * 360 / NUM_CATEGORIES) % 360;
+  CATEGORY_COLORS.push(`hsl(${hue}, 70%, 60%)`);
+}
+
+const CONTAINER_W = 120;
+const CONTAINER_H = 100;
+const CONTAINER_PAD = 15;
+const CONTAINER_X = 30;
+const CONTAINER_Y_START = 50;
+
+function getContainerPos(idx, numContainers) {
+  const cols = Math.min(2, Math.ceil(numContainers / 5));
+  const rows = Math.ceil(numContainers / cols);
+  const col = idx % cols;
+  const row = Math.floor(idx / cols);
+  return {
+    x: CONTAINER_X + col * (CONTAINER_W + CONTAINER_PAD + 20),
+    y: CONTAINER_Y_START + row * (CONTAINER_H + CONTAINER_PAD)
+  };
+}
+
+const ZONE_W = 90;
+const ZONE_H = 70;
+const ZONE_PAD = 8;
+const ZONE_X_START = 420;
+const ZONE_Y_START = 50;
+
+function getZonePos(idx) {
+  const col = idx % 10;
+  const row = Math.floor(idx / 10);
+  return {
+    x: ZONE_X_START + col * (ZONE_W + ZONE_PAD),
+    y: ZONE_Y_START + row * (ZONE_H + ZONE_PAD)
+  };
+}
+
+class Box {
+  constructor(category) {
+    this.category = category;
+    this.color = CATEGORY_COLORS[category];
+  }
+}
+
+class Container {
+  constructor(id, numContainers) {
+    this.id = id;
+    this.boxes = [];
+    const pos = getContainerPos(id, numContainers);
+    this.x = pos.x;
+    this.y = pos.y;
+  }
+
+  addBox(box) {
+    if (this.boxes.length < CONTAINER_CAPACITY) {
+      this.boxes.push(box);
+      return true;
+    }
+    return false;
+  }
+
+  removeBox() {
+    return this.boxes.length > 0 ? this.boxes.pop() : null;
+  }
+
+  isEmpty() {
+    return this.boxes.length === 0;
+  }
+
+  draw() {
+    ctx.fillStyle = '#16213e';
+    ctx.fillRect(this.x, this.y, CONTAINER_W, CONTAINER_H);
+    ctx.strokeStyle = '#533483';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(this.x, this.y, CONTAINER_W, CONTAINER_H);
+
+    ctx.fillStyle = '#eee';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(`C${this.id + 1}`, this.x + 5, this.y + 15);
+    ctx.fillText(`${this.boxes.length}`, this.x + 5, this.y + 30);
+
+    const sampleCount = Math.min(this.boxes.length, 20);
+    for (let i = 0; i < sampleCount; i++) {
+      const bx = this.x + 8 + (i % 5) * 20;
+      const by = this.y + 40 + Math.floor(i / 5) * 12;
+      ctx.fillStyle = this.boxes[i].color;
+      ctx.beginPath();
+      ctx.arc(bx, by, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+class SortZone {
+  constructor(category) {
+    this.category = category;
+    this.boxes = [];
+    const pos = getZonePos(category);
+    this.x = pos.x;
+    this.y = pos.y;
+  }
+
+  addBox(box) {
+    this.boxes.push(box);
+  }
+
+  draw() {
+    ctx.fillStyle = '#16213e';
+    ctx.fillRect(this.x, this.y, ZONE_W, ZONE_H);
+    ctx.strokeStyle = CATEGORY_COLORS[this.category];
+    ctx.lineWidth = 2;
+    ctx.strokeRect(this.x, this.y, ZONE_W, ZONE_H);
+
+    ctx.fillStyle = CATEGORY_COLORS[this.category];
+    ctx.font = 'bold 10px sans-serif';
+    ctx.fillText(`${this.category + 1}`, this.x + 3, this.y + 13);
+
+    ctx.fillStyle = '#eee';
+    ctx.font = '9px sans-serif';
+    ctx.fillText(`${this.boxes.length}`, this.x + 3, this.y + 25);
+
+    const sampleCount = Math.min(this.boxes.length, 15);
+    for (let i = 0; i < sampleCount; i++) {
+      const bx = this.x + 5 + (i % 5) * 16;
+      const by = this.y + 32 + Math.floor(i / 5) * 10;
+      ctx.fillStyle = CATEGORY_COLORS[this.category];
+      ctx.beginPath();
+      ctx.arc(bx, by, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+const OP_STATES = {
+  IDLE: 'idle',
+  PICKING: 'picking',
+  CARRYING: 'carrying',
+  DROPPING: 'dropping',
+  RETURNING: 'returning'
+};
+
+class Operator {
+  constructor(id) {
+    this.id = id;
+    this.state = OP_STATES.IDLE;
+    this.x = 200 + id * 30;
+    this.y = 800;
+    this.targetX = this.x;
+    this.targetY = this.y;
+    this.carriedBoxes = [];
+    this.currentContainer = null;
+    this.targetZone = null;
+    this.stateTimer = 0;
+    this.stateDuration = 0;
+    this.startX = 0;
+    this.startY = 0;
+    this.walkDurs = { walk: 0, return: 0 };
+  }
+
+  update(containers, zones) {
+    switch (this.state) {
+      case OP_STATES.IDLE:
+        this.findWork(containers);
+        break;
+      case OP_STATES.PICKING:
+        this.stateTimer++;
+        if (this.stateTimer >= this.stateDuration) {
+          this.state = OP_STATES.CARRYING;
+          this.stateTimer = 0;
+          this.walkDurs.walk = walkFrames();
+          this.stateDuration = this.walkDurs.walk;
+          this.startX = this.x;
+          this.startY = this.y;
+          this.targetX = this.targetZone.x + ZONE_W / 2;
+          this.targetY = this.targetZone.y + ZONE_H / 2;
+        }
+        break;
+      case OP_STATES.CARRYING:
+        this.stateTimer++;
+        const walkProgress = Math.min(this.stateTimer / this.stateDuration, 1);
+        this.x = this.startX + (this.targetX - this.startX) * walkProgress;
+        this.y = this.startY + (this.targetY - this.startY) * walkProgress;
+        if (this.stateTimer >= this.stateDuration) {
+          this.x = this.targetX;
+          this.y = this.targetY;
+          this.state = OP_STATES.DROPPING;
+          this.stateTimer = 0;
+          this.stateDuration = PLACE_FRAMES;
+        }
+        break;
+      case OP_STATES.DROPPING:
+        this.stateTimer++;
+        if (this.stateTimer >= this.stateDuration) {
+          for (const box of this.carriedBoxes) {
+            this.targetZone.addBox(box);
+          }
+          incrementCycles();
+          trackPlaceTime(PLACE_FRAMES / FPS);
+          this.carriedBoxes = [];
+          this.state = OP_STATES.RETURNING;
+          this.stateTimer = 0;
+          this.walkDurs.return = returnFrames();
+          this.stateDuration = this.walkDurs.return;
+          this.startX = this.x;
+          this.startY = this.y;
+          if (this.currentContainer) {
+            this.targetX = this.currentContainer.x + CONTAINER_W / 2;
+            this.targetY = this.currentContainer.y + CONTAINER_H / 2;
+          }
+        }
+        break;
+      case OP_STATES.RETURNING:
+        this.stateTimer++;
+        const returnProgress = Math.min(this.stateTimer / this.stateDuration, 1);
+        this.x = this.startX + (this.targetX - this.startX) * returnProgress;
+        this.y = this.startY + (this.targetY - this.startY) * returnProgress;
+        if (this.stateTimer >= this.stateDuration) {
+          this.x = this.targetX;
+          this.y = this.targetY;
+          trackReturnTime(this.walkDurs.return / FPS);
+          this.state = OP_STATES.IDLE;
+        }
+        break;
+    }
+  }
+
+  findWork(containers) {
+    for (const container of containers) {
+      if (!container.isEmpty()) {
+        this.currentContainer = container;
+        const carryCount = MIN_CARRY + Math.floor(Math.random() * (MAX_CARRY - MIN_CARRY + 1));
+        this.carriedBoxes = [];
+        for (let i = 0; i < carryCount; i++) {
+          const box = container.removeBox();
+          if (box) this.carriedBoxes.push(box);
+        }
+        if (this.carriedBoxes.length === 0) {
+          this.currentContainer = null;
+          return;
+        }
+        const categories = this.carriedBoxes.map(b => b.category);
+        const groups = {};
+        for (const cat of categories) {
+          groups[cat] = (groups[cat] || 0) + 1;
+        }
+        let bestCat = categories[0];
+        let bestCount = groups[bestCat];
+        for (const cat in groups) {
+          if (groups[cat] > bestCount) {
+            bestCount = groups[cat];
+            bestCat = parseInt(cat);
+          }
+        }
+        this.targetZone = zones[bestCat];
+        const toKeep = this.carriedBoxes.filter(b => b.category === bestCat);
+        const toReturn = this.carriedBoxes.filter(b => b.category !== bestCat);
+        for (const box of toReturn) {
+          container.boxes.push(box);
+        }
+        this.carriedBoxes = toKeep;
+        this.state = OP_STATES.PICKING;
+        this.stateTimer = 0;
+        this.stateDuration = PICK_FRAMES;
+        this.x = this.currentContainer.x + CONTAINER_W / 2;
+        this.y = this.currentContainer.y + CONTAINER_H / 2;
+        this.targetX = this.x;
+        this.targetY = this.y;
+        return;
+      }
+    }
+  }
+
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    const angle = Math.atan2(this.targetY - this.y, this.targetX - this.x);
+    ctx.rotate(angle);
+
+    ctx.fillStyle = '#e94560';
+    ctx.beginPath();
+    ctx.moveTo(12, 0);
+    ctx.lineTo(-8, -8);
+    ctx.lineTo(-8, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px sans-serif';
+    ctx.fillText(`Op${this.id + 1}`, this.x - 10, this.y - 12);
+
+    if (this.carriedBoxes.length > 0) {
+      ctx.fillStyle = '#ffd700';
+      ctx.font = '9px sans-serif';
+      ctx.fillText(`${this.carriedBoxes.length}`, this.x + 5, this.y - 12);
+    }
+  }
+}
+
+let containers = [];
+let zones = [];
+let operators = [];
+let running = false;
+let speed = 5;
+let animationId = null;
+
+let completed = false;
+let totalPickFrames = 0;
+let totalWalkFrames = 0;
+let totalPlaceFrames = 0;
+let totalReturnFrames = 0;
+let pickCount = 0;
+let walkCount = 0;
+let placeCount = 0;
+let returnCount = 0;
+let cycles = 0;
+let simTicks = 0;
+
+function trackPickTime(frames) { totalPickFrames += frames; pickCount++; }
+function trackWalkTime(frames) { totalWalkFrames += frames; walkCount++; }
+function trackPlaceTime(frames) { totalPlaceFrames += frames; placeCount++; }
+function trackReturnTime(frames) { totalReturnFrames += frames; returnCount++; }
+function incrementCycles() { cycles++; }
+
+function formatTime(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function getElapsedMs() {
+  return (simTicks / FPS) * 1000;
+}
+
+function initSimulation() {
+  containers = [];
+  zones = [];
+  operators = [];
+
+  const numContainers = CONFIG.numContainers;
+  const numOperators = CONFIG.numOperators;
+  const itemsPerContainer = CONFIG.itemsPerContainer;
+
+  for (let i = 0; i < numContainers; i++) {
+    containers.push(new Container(i, numContainers));
+  }
+
+  for (let i = 0; i < NUM_CATEGORIES; i++) {
+    zones.push(new SortZone(i));
+  }
+
+  for (let i = 0; i < numOperators; i++) {
+    operators.push(new Operator(i));
+  }
+
+  for (let i = 0; i < numContainers; i++) {
+    const count = Math.min(itemsPerContainer + Math.floor(Math.random() * 200 - 100), CONTAINER_CAPACITY);
+    for (let j = 0; j < count; j++) {
+      const category = Math.floor(Math.random() * NUM_CATEGORIES);
+      containers[i].boxes.push(new Box(category));
+    }
+  }
+}
+
+function updateStats() {
+  let pending = 0, transit = 0, sorted = 0;
+  for (const c of containers) pending += c.boxes.length;
+  for (const o of operators) transit += o.carriedBoxes.length;
+  for (const z of zones) sorted += z.boxes.length;
+
+  document.getElementById('pendingCount').textContent = pending;
+  document.getElementById('transitCount').textContent = transit;
+  document.getElementById('sortedCount').textContent = sorted;
+
+  const elapsedMs = getElapsedMs();
+  document.getElementById('elapsedTime').textContent = formatTime(elapsedMs);
+
+  const elapsedMin = elapsedMs / 60000;
+  const rate = elapsedMin > 0 ? (sorted / elapsedMin).toFixed(1) : 0;
+  document.getElementById('throughputRate').textContent = rate;
+
+  document.getElementById('cycleCount').textContent = cycles;
+
+  if (!completed && pending === 0 && transit === 0 && sorted > 0) {
+    completed = true;
+    running = false;
+    document.getElementById('completionMsg').style.display = 'block';
+    const finalMs = getElapsedMs();
+    document.getElementById('elapsedTime').textContent = formatTime(finalMs);
+    const finalRate = (finalMs / 60000 > 0) ? (sorted / (finalMs / 60000)).toFixed(1) : 0;
+    document.getElementById('throughputRate').textContent = finalRate;
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#0f3460';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  for (const c of containers) c.draw();
+  for (const z of zones) z.draw();
+  for (const o of operators) o.draw();
+
+  for (const o of operators) {
+    if (o.carriedBoxes.length > 0) {
+      for (let i = 0; i < o.carriedBoxes.length; i++) {
+        const offset = (i - (o.carriedBoxes.length - 1) / 2) * 10;
+        ctx.fillStyle = o.carriedBoxes[i].color;
+        ctx.beginPath();
+        ctx.arc(o.x + offset, o.y + 15, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+  }
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '12px sans-serif';
+  ctx.fillText('Containers', 30, canvas.height - 30);
+  ctx.fillText('Sorting Table', ZONE_X_START, canvas.height - 30);
+  ctx.fillText('▲ = Operator', 250, canvas.height - 30);
+  ctx.fillText('● = Box (color = category)', 380, canvas.height - 30);
+
+  updateStats();
+}
+
+function gameLoop() {
+  if (!running) return;
+
+  for (let i = 0; i < speed; i++) {
+    for (const o of operators) {
+      o.update(containers, zones);
+    }
+    simTicks++;
+  }
+
+  render();
+  animationId = requestAnimationFrame(gameLoop);
+}
+
+function start() {
+  if (!running) {
+    if (completed) {
+      reset();
+    }
+    running = true;
+    gameLoop();
+  }
+}
+
+function pause() {
+  running = false;
+  if (animationId) cancelAnimationFrame(animationId);
+}
+
+function reset() {
+  pause();
+  completed = false;
+  totalPickFrames = 0;
+  totalWalkFrames = 0;
+  totalPlaceFrames = 0;
+  totalReturnFrames = 0;
+  pickCount = 0;
+  walkCount = 0;
+  placeCount = 0;
+  returnCount = 0;
+  cycles = 0;
+  simTicks = 0;
+  document.getElementById('completionMsg').style.display = 'none';
+  initSimulation();
+  render();
+}
+
+function applySettings() {
+  pause();
+  CONFIG.numOperators = parseInt(document.getElementById('opSlider').value);
+  CONFIG.numContainers = parseInt(document.getElementById('contSlider').value);
+  CONFIG.itemsPerContainer = parseInt(document.getElementById('itemsSlider').value);
+  completed = false;
+  totalPickFrames = 0;
+  totalWalkFrames = 0;
+  totalPlaceFrames = 0;
+  totalReturnFrames = 0;
+  pickCount = 0;
+  walkCount = 0;
+  placeCount = 0;
+  returnCount = 0;
+  cycles = 0;
+  simTicks = 0;
+  document.getElementById('completionMsg').style.display = 'none';
+  initSimulation();
+  render();
+}
+
+// Speed buttons
+document.querySelectorAll('.speed-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    speed = parseInt(btn.dataset.speed);
+  });
+});
+
+// Settings toggle
+const settingsToggle = document.getElementById('settingsToggle');
+const settingsPanel = document.getElementById('settingsPanel');
+settingsToggle.addEventListener('click', () => {
+  settingsPanel.classList.toggle('visible');
+  settingsToggle.classList.toggle('active');
+});
+
+// Slider value displays
+document.getElementById('opSlider').addEventListener('input', e => {
+  document.getElementById('opVal').textContent = e.target.value;
+});
+document.getElementById('contSlider').addEventListener('input', e => {
+  document.getElementById('contVal').textContent = e.target.value;
+});
+document.getElementById('itemsSlider').addEventListener('input', e => {
+  document.getElementById('itemsVal').textContent = e.target.value;
+});
+
+document.getElementById('applySettingsBtn').addEventListener('click', applySettings);
+document.getElementById('startBtn').addEventListener('click', start);
+document.getElementById('pauseBtn').addEventListener('click', pause);
+document.getElementById('resetBtn').addEventListener('click', reset);
+
+initSimulation();
+render();
+</script>
+</body>
+</html>
