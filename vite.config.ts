@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   base: './',
   server: {
+    port: 9090,
     allowedHosts: ['cartouche'],
   },
 })
